@@ -1,7 +1,8 @@
 """Placeholder for a *future* trainable composition planner (not used in production yet).
 
-Today Chromesthesia uses rule-based logic in ``composition_intelligence_layer.py`` and
-``music_mapping.py``. This module sketches how a **PyTorch** model could someday learn:
+Today Chromesthesia uses rule-based logic in ``composition_intelligence_layer.py`` (re-exported
+via ``music_mapping.plan_composition`` for stable imports). This module sketches how a **PyTorch**
+model could someday learn:
 
     perception numbers (+ encoded text) → continuous / categorical composition targets
 
@@ -120,7 +121,9 @@ def explain_future_training_plan() -> str:
     return """
 Future training checklist (high level):
 
-1. **Dataset**: pairs (perception_vector, composition_labels). Labels can come from your current
+1. **Dataset**: pairs (perception_vector, composition_labels). Labels should match the production
+   ``CompositionPlan`` schema (key, mode, tempo_bpm, duration_seconds, structure, densities,
+   melodic_range, harmonic_complexity, instrument_feel, mood, explanation strings)—from the current
    rule-based planner, from human experts, or from edited MIDI you like.
 
 2. **Losses**: combine regression losses (tempo, duration, densities) with cross-entropy on
