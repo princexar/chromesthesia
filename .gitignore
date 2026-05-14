@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+.env
+.DS_Store
+
+# Generated outputs (keep directory via .gitkeep)
+outputs/midi/*.mid
+outputs/midi/*.midi
+outputs/audio/*.wav
+outputs/audio/*.mp3
+outputs/audio/*.flac
+
+# Large binary assets (add soundfonts manually)
+assets/soundfonts/*.sf2
+assets/soundfonts/*.sf3
