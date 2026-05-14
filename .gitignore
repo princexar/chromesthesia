@@ -7,6 +7,9 @@ venv/
 .env
 .DS_Store
 
+# Local-only code map (see file for per-module / per-function notes)
+LOCAL_CODEBOOK.md
+
 # Generated outputs (keep directory via .gitkeep)
 outputs/midi/*.mid
 outputs/midi/*.midi
