@@ -1,7 +1,7 @@
 """Build multi-measure MIDI from a ``CompositionPlan`` (melody + optional harmony track).
 
-Uses ``mido`` only—no neural inference. Scene-driven fields control length, rests, subdivisions,
-section character, and bass/chord density.
+Uses ``mido`` only—no neural inference. Consumes the structured plan from
+``composition_intelligence_layer`` (re-exported by ``music_mapping`` for convenience).
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from pathlib import Path
 import mido
 from mido import Message, MetaMessage, MidiFile, MidiTrack, bpm2tempo
 
-from src.music_mapping import CompositionPlan
+from src.composition_intelligence_layer import CompositionPlan
 
 _ROOT_PC = {
     "C": 0,
@@ -30,6 +30,55 @@ _ROOT_PC = {
 }
 
 _BEATS_PER_MEASURE = 4
+
+
+def _measures_from_plan(duration_seconds: float, tempo_bpm: int) -> int:
+    quarters_total = duration_seconds * (tempo_bpm / 60.0)
+    m = int(round(quarters_total / 4.0))
+    return max(12, min(96, m))
+
+
+def _section_form_for_generator(structure: str) -> str:
+    s = structure.lower().strip()
+    if "through" in s:
+        return "through"
+    if s == "abab":
+        return "ABAB"
+    return "AABA"
+
+
+def _rhythm_complexity_label(plan: CompositionPlan) -> str:
+    tex_w = {"sparse": 0.2, "balanced": 0.5, "dense": 0.85}[plan.texture_density]
+    x = 0.55 * plan.note_density + 0.45 * tex_w
+    if x < 0.33:
+        return "Low"
+    if x < 0.58:
+        return "Moderate"
+    return "High"
+
+
+def _harmonic_band(h: float) -> str:
+    if h < 0.38:
+        return "simple"
+    if h < 0.68:
+        return "moderate"
+    return "rich"
+
+
+def _melody_program(instrument_feel: str) -> int:
+    s = instrument_feel.lower()
+    if "electric piano" in s:
+        return 4
+    return 0
+
+
+def _harmony_program(instrument_feel: str) -> int:
+    s = instrument_feel.lower()
+    if "strings" in s and "piano" in s:
+        return 48
+    if "electric bass" in s:
+        return 33
+    return 32
 
 
 def _scale_midi_notes(key: str, mode: str, low: int, high: int) -> list[int]:
@@ -55,14 +104,14 @@ def _slots_per_measure(rhythm_complexity: str, texture_density: str) -> int:
     return 2
 
 
-def _rest_probability(plan: CompositionPlan) -> float:
+def _rest_probability(plan: CompositionPlan, rhythm_label: str) -> float:
     """Higher for sparse / slow scenes (longer breaths between notes)."""
     tex = plan.texture_density
-    rhyth = plan.rhythm_complexity
     p = {"sparse": 0.34, "balanced": 0.2, "dense": 0.09}[tex]
-    if rhyth == "High":
+    p *= 1.1 - 0.45 * plan.note_density
+    if rhythm_label == "High":
         p *= 0.7
-    elif rhyth == "Low":
+    elif rhythm_label == "Low":
         p *= 1.25
     return max(0.06, min(0.55, p))
 
@@ -108,14 +157,14 @@ def generate_midi(plan: CompositionPlan, out_path: Path, seed: int | None = None
     """Write a multi-measure MIDI file: melody track plus optional bass/harmony based on the plan.
 
     Args:
-        plan: Includes ``measures``, ``section_form``, ``texture_density``, ``harmonic_complexity``.
+        plan: Structured targets from ``build_composition_plan`` (no raw note lists).
         out_path: Destination ``.mid`` file.
         seed: RNG seed for reproducible note choices.
 
     Returns:
         ``out_path`` after save.
     """
-    low, high = plan.midi_low, plan.midi_high
+    low, high = plan.melodic_range
     if low >= high:
         low, high = 55, 84
     pool = _scale_midi_notes(plan.key, plan.mode, low, high)
@@ -125,34 +174,39 @@ def generate_midi(plan: CompositionPlan, out_path: Path, seed: int | None = None
     mid = MidiFile(type=1)
     ticks_per_beat = mid.ticks_per_beat
     ticks_per_measure = ticks_per_beat * _BEATS_PER_MEASURE
-    measures = max(1, plan.measures)
+    measures = _measures_from_plan(plan.duration_seconds, plan.tempo_bpm)
+    section_form = _section_form_for_generator(plan.structure)
+    rhythm_label = _rhythm_complexity_label(plan)
+    harm_band = _harmonic_band(plan.harmonic_complexity)
+    mel_prog = _melody_program(plan.instrument_feel)
+    harm_prog = _harmony_program(plan.instrument_feel)
 
     mel = MidiTrack()
     mid.tracks.append(mel)
     mel.append(MetaMessage("set_tempo", tempo=bpm2tempo(plan.tempo_bpm), time=0))
     mel.append(MetaMessage("track_name", name="Melody", time=0))
-    mel.append(Message("program_change", program=0, time=0))
+    mel.append(Message("program_change", program=mel_prog, time=0))
 
     harm: MidiTrack | None = None
-    if plan.harmonic_complexity != "simple":
+    if harm_band != "simple":
         harm = MidiTrack()
         mid.tracks.append(harm)
         harm.append(MetaMessage("track_name", name="Harmony", time=0))
-        harm.append(Message("program_change", program=32, time=0))
+        harm.append(Message("program_change", program=harm_prog, time=0))
 
-    slots_pm = _slots_per_measure(plan.rhythm_complexity, plan.texture_density)
+    slots_pm = _slots_per_measure(rhythm_label, plan.texture_density)
     step_ticks = max(1, ticks_per_measure // slots_pm)
-    rest_p = _rest_probability(plan)
+    rest_p = _rest_probability(plan, rhythm_label)
 
     last = pool[len(pool) // 2]
-    leap = 7 if plan.rhythm_complexity == "High" else 5
+    leap = 7 if rhythm_label == "High" else 5
 
     pending = 0
     for m in range(measures):
-        sec = _section_label_at_measure(plan.section_form, m, measures)
+        sec = _section_label_at_measure(section_form, m, measures)
         rloc = random.Random((seed or 0) + m * 1009 + sum(ord(c) for c in sec) * 17)
 
-        for slot in range(slots_pm):
+        for _slot in range(slots_pm):
             if rloc.random() < rest_p:
                 pending += step_ticks
                 continue
@@ -163,7 +217,7 @@ def generate_midi(plan: CompositionPlan, out_path: Path, seed: int | None = None
                 n = min(n + 12, max(pool))
 
             note_len = step_ticks
-            if plan.texture_density == "sparse" and plan.rhythm_complexity == "Low":
+            if plan.texture_density == "sparse" and rhythm_label == "Low":
                 note_len = min(ticks_per_measure, step_ticks * 2)
 
             mel.append(Message("note_on", note=n, velocity=76, time=pending))
@@ -180,7 +234,7 @@ def generate_midi(plan: CompositionPlan, out_path: Path, seed: int | None = None
         h_pending = 0
         for m in range(measures):
             root = _bass_root_midi(m, plan.key, plan.mode, octave=3)
-            if plan.harmonic_complexity == "moderate":
+            if harm_band == "moderate":
                 fifth = root + 7
                 harm.append(Message("note_on", note=root, velocity=54, time=h_pending))
                 harm.append(Message("note_off", note=root, velocity=0, time=ticks_per_beat * 2))
