@@ -1,6 +1,8 @@
 ''' This takes brightness, contrast, edge detail, dominant color, ML energy, CLIP mood, CLIP atmosphere,
     and outputs key, mode, tempo, length, structure, texture, density, and instrument feel'''
 
+#Composition Intelligence Layer is the rule based planner for this program. 
+
 from __future__ import annotations
 
 import math
@@ -18,15 +20,15 @@ import numpy as np
 #Phase 4 - Train composition intelligence:  perception outputs -> composition plan
 
 Mood = Literal[
-    "Happy",
-    "Sad",
-    "Angry",
-    "Fearful",
-    "Surprised",
-    "Disgusted",
-    "Content",
-    "Excited",
-    "Relaxed",
+    "joyful",
+    "peaceful",
+    "melancholic",
+    "eerie",
+    "chaotic",
+    "cinematic",
+    "nostalgic",
+    "tense",
+    "neutral",
 ]
 
 EnergyLevel = Literal["low", "medium", "high"]
