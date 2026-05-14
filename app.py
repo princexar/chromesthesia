@@ -12,6 +12,7 @@ from src.image_analysis import analyze_image, load_image_from_bytes
 from src.ml_features import extract_resnet18_embedding, summarize_embedding
 from src.music_generator import generate_midi
 from src.music_mapping import interpret_mood, plan_composition
+from src.scene_composition_cue import NEUTRAL_SCENE_CUE, build_scene_composition_cue
 from src.semantic_interpreter import interpret_scene
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -20,9 +21,10 @@ OUTPUT_AUDIO_DIR = PROJECT_ROOT / "outputs" / "audio"
 SOUNDFONTS_DIR = PROJECT_ROOT / "assets" / "soundfonts"
 
 HOW_IT_WORKS = """
-Chromesthesia builds one **composition plan** from **two parallel readings** of your image, then
-uses that plan to roll a short **MIDI** phrase (and optionally **WAV** if you have a SoundFont and
-`fluidsynth`).
+Chromesthesia builds one **composition plan** from **three parallel readings** of your image—classic
+pixels, a ResNet embedding summary, and a **CLIP scene cue** (mood, energy, scale, duration band,
+texture)—then maps them into tempo, span, **length in measures**, **section form**, and **harmony
+density**. A **rule-based** program writes multi-measure MIDI (melody plus optional bass line).
 
 #### 1. Classic image analysis (explainable pixels)
 
@@ -51,14 +53,18 @@ shape of the activation vector. They are **blended** into the same plan as the c
 - **Peak activation (`max_activation`)** → mixed with the classic span so **note range** (MIDI low–high)
   reflects both fine structure in the embedding and contrast/detail in the image.
 
-#### 3. What you hear
+#### 3. Scene composition cue (frozen CLIP)
 
-**Generate Music** samples notes inside the chosen **key**, **mode**, **tempo**, **rhythm** setting,
-and **pitch span**. Classic and neural influences are **combined**, not switched off—so neither side
-fully overrides the other unless one signal is very strong.
+**CLIP** ranks atmosphere prompts, then scores separate prompt sets for **intimate vs expansive**,
+**short vs long feel**, and **sparse vs dense** texture. Those choices set a **target duration**
+(roughly 30–45s / 60–90s / 90–180s bands), nudge **tempo** and **rhythm**, and pick **AABA**, **ABAB**,
+or **through-composed** form plus **simple / moderate / rich** harmony in the MIDI engine.
 
-**Audio:** in-browser playback needs a **WAV** rendered with **fluidsynth** and a **`.sf2`** under
-`assets/soundfonts/`; otherwise download the **MIDI** and play it in any sequencer.
+#### 4. What you hear
+
+**Generate Music** writes **many measures** of diatonic material: scene-driven **rest probability** and
+subdivisions control **note density**; a second track adds **roots / fifths / arpeggiated triads** when
+harmony is not *simple*. **WAV** playback still needs **fluidsynth** + a **`.sf2`** under `assets/soundfonts/`.
 """
 
 
@@ -89,14 +95,15 @@ def render_translation_pipeline(
     ml_summary: Mapping[str, float],
     emb_dim: int,
     comp,
+    scene_cue,
 ) -> None:
     """Transparent left-to-right *process* as a vertical pipeline (not a network graph)."""
     st.divider()
     st.subheader("How the Image Becomes Music")
     st.caption(
-        "A **translation pipeline**: pixels and a frozen vision model produce **numbers**; those numbers "
-        "are **mapped** to musical parameters; a small **rule-based** program writes MIDI. "
-        "The neural net does **not** compose or improvise—it only supplies part of the visual signal."
+        "A **translation pipeline**: pixels, a ResNet summary, and a **CLIP scene cue** become **numbers**; "
+        "those numbers are **mapped** to musical parameters; a **rule-based** program writes multi-measure MIDI. "
+        "No model is trained here—frozen nets only suggest structure."
     )
 
     # --- 1. Image input ---------------------------------------------------------
@@ -128,7 +135,7 @@ def render_translation_pipeline(
     )
     _pipeline_arrow()
 
-    # --- 3. Learned embedding ---------------------------------------------------
+    # --- 3. ResNet embedding ----------------------------------------------------
     _pipeline_card(
         "Stage 3",
         "Learned visual embedding (frozen ResNet18)",
@@ -141,35 +148,51 @@ def render_translation_pipeline(
     )
     _pipeline_arrow()
 
-    # --- 4. Music mapping -------------------------------------------------------
     _pipeline_card(
         "Stage 4",
-        "Music mapping (blend of Stage 2 + Stage 3)",
+        "Scene composition cue (frozen CLIP, zero-shot)",
         [
-            f"<b>Key</b> — {comp.key} (hue from pixels, unchanged by the net)",
-            f"<b>Mode</b> — {comp.mode} (brightness / warmth heuristics)",
-            f"<b>Tempo</b> — {comp.tempo_bpm} BPM (classic tempo blended with energy score)",
-            f"<b>Rhythm complexity</b> — {comp.rhythm_complexity} (edges blended with variation score)",
-            f"<b>Note span</b> — MIDI {comp.midi_low}–{comp.midi_high} (contrast/detail blended with peak activation)",
+            f"<b>Mood</b> — {scene_cue.emotional_mood}",
+            f"<b>Energy</b> — {scene_cue.energy_level} &nbsp;|&nbsp; <b>Atmosphere</b> — {scene_cue.atmosphere}",
+            f"<b>Scale</b> — {scene_cue.perceived_scale} &nbsp;|&nbsp; <b>Texture</b> — {scene_cue.texture_density}",
+            f"<b>Duration</b> — {scene_cue.duration_band} (~{scene_cue.target_duration_sec:.0f}s target)",
         ],
     )
     _pipeline_arrow()
 
-    # --- 5. Composition engine --------------------------------------------------
+    # --- 5. Music mapping -------------------------------------------------------
     _pipeline_card(
         "Stage 5",
-        "Composition engine (small program, not a generative model)",
+        "Music mapping (pixels + ResNet + scene cue)",
         [
-            "<b>Melody generation</b> — short sequence of random choices inside the mapped constraints",
-            f"<b>Scale selection</b> — diatonic pitches for {comp.key} {comp.mode} inside the MIDI span",
-            "<b>MIDI creation</b> — note-on / note-off events written with <code>mido</code>",
+            f"<b>Key</b> — {comp.key} (hue from pixels)",
+            f"<b>Mode</b> — {comp.mode} (brightness / warmth heuristics)",
+            f"<b>Tempo</b> — {comp.tempo_bpm} BPM (pixels + ResNet energy + scene energy)",
+            f"<b>Rhythm</b> — {comp.rhythm_complexity} (edges + variation + scene texture)",
+            f"<b>Note span</b> — MIDI {comp.midi_low}–{comp.midi_high} (contrast + ML peak + scene scale)",
+            f"<b>Measures / form</b> — {comp.measures} bars, **{comp.section_form}**",
+            f"<b>Harmony depth</b> — {comp.harmonic_complexity}",
         ],
     )
     _pipeline_arrow()
 
-    # --- 6. Audio output ----------------------------------------------------------
+    # --- 6. Composition engine --------------------------------------------------
     _pipeline_card(
         "Stage 6",
+        "Composition engine (rule-based, not a generative model)",
+        [
+            f"<b>Length</b> — ~{comp.target_duration_sec:.0f}s ({comp.measures} × 4/4 measures)",
+            f"<b>Melody</b> — section-aware random walk ({comp.section_form}) with scene-driven rests",
+            f"<b>Scale</b> — diatonic pitches for {comp.key} {comp.mode} inside MIDI {comp.midi_low}–{comp.midi_high}",
+            f"<b>Harmony track</b> — {'none (simple)' if comp.harmonic_complexity == 'simple' else comp.harmonic_complexity + ' bass / arpeggio'}",
+            "<b>MIDI</b> — written with <code>mido</code> (melody + optional second track)",
+        ],
+    )
+    _pipeline_arrow()
+
+    # --- 7. Audio output ----------------------------------------------------------
+    _pipeline_card(
+        "Stage 7",
         "Audio output",
         [
             "<b>Playback</b> — WAV in the browser when fluidsynth + a SoundFont render the MIDI",
@@ -194,6 +217,7 @@ def main() -> None:
             st.session_state.pop("wav_path", None)
             st.session_state.pop("scene_rankings", None)
             st.session_state.pop("_scene_cache_key", None)
+            st.session_state.pop("scene_composition_cue", None)
             st.session_state["_upload_key"] = upload_key
 
         image = load_image_from_bytes(data)
@@ -224,20 +248,50 @@ def main() -> None:
 
         st.divider()
         st.subheader("Scene Interpretation")
-        if st.session_state.get("_scene_cache_key") != upload_key or "scene_rankings" not in st.session_state:
-            with st.spinner("Loading CLIP and scoring prompts…"):
-                scene_rankings = interpret_scene(image)
-            st.session_state["_scene_cache_key"] = upload_key
-            st.session_state["scene_rankings"] = scene_rankings
+        if (
+            st.session_state.get("_scene_cache_key") != upload_key
+            or "scene_rankings" not in st.session_state
+            or "scene_composition_cue" not in st.session_state
+        ):
+            with st.spinner("Loading CLIP and building scene composition cue…"):
+                try:
+                    scene_rankings = interpret_scene(image)
+                    scene_cue = build_scene_composition_cue(image, scene_rankings)
+                except ModuleNotFoundError as exc:
+                    if exc.name != "transformers":
+                        raise
+                    st.error(
+                        "Missing package **transformers** (needed for CLIP). In your project venv run:  \n"
+                        "`pip install -r requirements.txt`  \n"
+                        "Then reload this app."
+                    )
+                    scene_rankings = []
+                    scene_cue = NEUTRAL_SCENE_CUE
+                st.session_state["_scene_cache_key"] = upload_key
+                st.session_state["scene_rankings"] = scene_rankings
+                st.session_state["scene_composition_cue"] = scene_cue
         else:
             scene_rankings = st.session_state["scene_rankings"]
+            scene_cue = st.session_state.get("scene_composition_cue", NEUTRAL_SCENE_CUE)
         st.caption(
-            "Local **CLIP** (Hugging Face `transformers`): your image is compared to the fixed phrases "
-            "below. Scores are **softmax over this list only**—they rank the prompts relative to each "
-            "other, not absolute truth. **Not used for MIDI yet.**"
+            "Local **CLIP** compares your image to fixed phrases (ranked below), then **three extra CLIP passes** "
+            "pick intimate vs expansive, short vs long feel, and sparse vs dense texture. "
+            "That **scene composition cue** steers tempo, length, form, rests, and harmony in the generator."
         )
         for rank, (label, score) in enumerate(scene_rankings, start=1):
             st.write(f"{rank}. **{score * 100:.1f}%** — {label}")
+
+        st.markdown("**Structured composition cue** *(used in mapping + MIDI)*")
+        sc1, sc2, sc3 = st.columns(3)
+        with sc1:
+            st.write("**Emotional mood**", scene_cue.emotional_mood)
+            st.write("**Energy**", scene_cue.energy_level)
+        with sc2:
+            st.write("**Atmosphere**", scene_cue.atmosphere)
+            st.write("**Perceived scale**", scene_cue.perceived_scale)
+        with sc3:
+            st.write("**Duration**", f"{scene_cue.duration_band} (~{scene_cue.target_duration_sec:.0f}s)")
+            st.write("**Texture density**", scene_cue.texture_density)
 
         st.divider()
         st.subheader("Neural Visual Interpretation")
@@ -263,24 +317,30 @@ def main() -> None:
         with m3:
             st.metric("Embedding dimensions", f"{emb_dim}")
 
-        comp = plan_composition(features, ml_summary)
+        comp = plan_composition(features, ml_summary, scene_cue)
         st.session_state["composition"] = comp
 
         st.divider()
         st.subheader("Generated composition")
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         with c1:
             st.write("**Key**", comp.key)
             st.write("**Tempo**", f"{comp.tempo_bpm} BPM")
-            st.caption(f"MIDI pitch span **{comp.midi_low}–{comp.midi_high}** (image + neural blend)")
+            st.caption(f"MIDI **{comp.midi_low}–{comp.midi_high}**")
         with c2:
             st.write("**Mode**", comp.mode)
-            st.write("**Rhythm complexity**", comp.rhythm_complexity)
+            st.write("**Rhythm**", comp.rhythm_complexity)
+            st.caption(f"Texture **{comp.texture_density}**")
         with c3:
-            st.write("**Melody description**")
-            st.write(comp.melody_description)
+            st.write("**Length**", f"~{comp.target_duration_sec:.0f}s")
+            st.write("**Measures**", f"{comp.measures} bars")
+            st.caption(f"Form **{comp.section_form}**")
+        with c4:
+            st.write("**Harmony**", comp.harmonic_complexity)
+            st.write("**Melody / scene**")
+            st.caption(comp.melody_description[:220] + ("…" if len(comp.melody_description) > 220 else ""))
 
-        render_translation_pipeline(image, features, ml_summary, emb_dim, comp)
+        render_translation_pipeline(image, features, ml_summary, emb_dim, comp, scene_cue)
 
         if st.button("Generate Music", type="primary"):
             stem = st.session_state.get("upload_name", "chromesthesia")

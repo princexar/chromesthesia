@@ -1,7 +1,7 @@
 """Zero-shot scene atmosphere hints using a frozen CLIP model (Hugging Face Transformers, local only).
 
-Compares one PIL image to a fixed list of English prompts and returns softmax scores over that list.
-No fine-tuning, no paid API—weights download once into the Hugging Face cache, then run on-device.
+Compares one PIL image to English prompts and returns softmax-ranked scores. Other modules can
+call ``clip_rank_texts`` with custom prompt lists for axes like scale or duration.
 """
 
 from __future__ import annotations
@@ -56,26 +56,12 @@ def _get_clip():
     return _model, _processor
 
 
-def interpret_scene(
-    image: Image.Image,
-    *,
-    candidate_labels: Sequence[str] | None = None,
-) -> list[tuple[str, float]]:
-    """Rank text prompts by CLIP image–text similarity (softmax over the candidate list only).
+def clip_rank_texts(image: Image.Image, texts: Sequence[str]) -> list[tuple[str, float]]:
+    """Run CLIP on one image vs ``texts``; return ``(text, softmax_score)`` sorted high → low.
 
-    CLIP was trained on image–text pairs from the web; these scores measure alignment between your
-    **pixels** and each **literal prompt**, not ground-truth emotions. Use them to sanity-check
-    wording, not as scientific labels.
-
-    Args:
-        image: A PIL image (RGB preferred; other modes are converted).
-        candidate_labels: Optional iterable of strings; defaults to ``DEFAULT_SCENE_LABELS``.
-
-    Returns:
-        ``(label, confidence)`` tuples sorted by descending confidence. Confidences are non-negative,
-        sum to **1.0** across the provided candidates, and are **not** calibrated probabilities.
+    Same math as ``interpret_scene``, but with an arbitrary prompt list (e.g. three scale options).
     """
-    labels = tuple(candidate_labels) if candidate_labels is not None else DEFAULT_SCENE_LABELS
+    labels = tuple(texts)
     if not labels:
         return []
 
@@ -93,9 +79,31 @@ def interpret_scene(
 
     with torch.inference_mode():
         outputs = model(**inputs)
-        # Shape [1, num_labels]: each column is an unscaled similarity; softmax → competition within this list.
         logits = outputs.logits_per_image[0]
         probs = logits.softmax(dim=-1).detach().float().cpu().tolist()
 
     ranked = sorted(zip(labels, probs), key=lambda pair: pair[1], reverse=True)
     return [(str(lab), float(score)) for lab, score in ranked]
+
+
+def interpret_scene(
+    image: Image.Image,
+    *,
+    candidate_labels: Sequence[str] | None = None,
+) -> list[tuple[str, float]]:
+    """Rank default (or custom) atmosphere prompts by CLIP image–text similarity.
+
+    CLIP was trained on image–text pairs from the web; these scores measure alignment between your
+    **pixels** and each **literal prompt**, not ground-truth emotions. Use them to sanity-check
+    wording, not as scientific labels.
+
+    Args:
+        image: A PIL image (RGB preferred; other modes are converted).
+        candidate_labels: Optional iterable of strings; defaults to ``DEFAULT_SCENE_LABELS``.
+
+    Returns:
+        ``(label, confidence)`` tuples sorted by descending confidence. Confidences are non-negative,
+        sum to **1.0** across the provided candidates, and are **not** calibrated probabilities.
+    """
+    labels = tuple(candidate_labels) if candidate_labels is not None else DEFAULT_SCENE_LABELS
+    return clip_rank_texts(image, labels)
