@@ -1,4 +1,4 @@
-"""Render MIDI to audio (e.g. soundfonts, synthesis)."""
+"""Offline MIDI→WAV rendering using the FluidSynth command-line tool and SoundFont files."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 def find_soundfont(assets_dir: Path) -> Path | None:
+    """Return the first ``.sf2`` / ``.sf3`` file found under ``assets_dir``, or None if none exist."""
     for ext in ("*.sf2", "*.SF2", "*.sf3", "*.SF3"):
         matches = list(assets_dir.glob(ext))
         if matches:
@@ -20,7 +21,19 @@ def render_wav_with_fluidsynth(
     wav_path: Path,
     soundfont: Path,
 ) -> bool:
-    """Render MIDI to WAV using the `fluidsynth` CLI if available."""
+    """Run ``fluidsynth`` to synthesize ``midi_path`` into ``wav_path`` using ``soundfont``.
+
+    Requires the ``fluidsynth`` executable on ``PATH``. Returns True only if the WAV file
+    exists and is non-empty after the subprocess exits successfully.
+
+    Args:
+        midi_path: Input MIDI file.
+        wav_path: Output WAV path (overwritten if present).
+        soundfont: Path to a compatible SoundFont (``.sf2`` / ``.sf3``).
+
+    Returns:
+        Whether rendering appears to have succeeded.
+    """
     fluidsynth = shutil.which("fluidsynth")
     if not fluidsynth:
         return False

@@ -1,7 +1,10 @@
 """ML-oriented feature extraction for Chromesthesia (ResNet18 image embeddings).
 
-This module only turns a PIL image into a numeric vector. It does **not** talk to
-music mapping or MIDI generation yet—that wiring comes in a later step.
+Exports:
+- ``extract_resnet18_embedding`` — PIL image → 512-D float vector.
+- ``summarize_embedding`` — 512-D vector → a small dict of UI-friendly scalars.
+
+This module does not perform music mapping or MIDI I/O; callers use the outputs downstream.
 """
 
 from __future__ import annotations
@@ -26,7 +29,12 @@ def _pick_device() -> torch.device:
 
 
 def _get_model_and_preprocess():
-    """Create the feature extractor the first time we need it, then reuse it."""
+    """Load ResNet18 once, strip the classifier, attach ImageNet preprocess, cache on module globals.
+
+    Returns:
+        Tuple of ``(model, preprocess)`` where ``model`` outputs 512-D vectors and ``preprocess``
+        is the torchvision transform chain matching the loaded weights.
+    """
     global _model, _preprocess
     if _model is not None and _preprocess is not None:
         return _model, _preprocess

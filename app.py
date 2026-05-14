@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Mapping
 
 import streamlit as st
 
@@ -11,6 +12,7 @@ from src.image_analysis import analyze_image, load_image_from_bytes
 from src.ml_features import extract_resnet18_embedding, summarize_embedding
 from src.music_generator import generate_midi
 from src.music_mapping import interpret_mood, plan_composition
+from src.semantic_interpreter import interpret_scene
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 OUTPUT_MIDI_DIR = PROJECT_ROOT / "outputs" / "midi"
@@ -60,6 +62,123 @@ fully overrides the other unless one signal is very strong.
 """
 
 
+def _pipeline_arrow() -> None:
+    st.markdown(
+        '<div style="text-align:center;color:#888;font-size:1.35rem;line-height:1.2;">↓</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _pipeline_card(title: str, headline: str, lines: list[str]) -> None:
+    """Single pipeline step as a light card (Streamlit-friendly HTML)."""
+    body = "<br/>".join(lines)
+    st.markdown(
+        f"<div style='border:1px solid rgba(49,51,63,0.35);border-radius:10px;padding:14px 16px;"
+        f"margin:6px 0;background:rgba(250,250,250,0.55);'>"
+        f"<div style='font-size:0.8rem;color:#555;text-transform:uppercase;letter-spacing:0.04em;'>"
+        f"{title}</div>"
+        f"<div style='font-size:1.05rem;font-weight:600;margin:6px 0 10px 0;color:#111;'>{headline}</div>"
+        f"<div style='font-size:0.92rem;line-height:1.55;color:#333;'>{body}</div></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_translation_pipeline(
+    image,
+    features,
+    ml_summary: Mapping[str, float],
+    emb_dim: int,
+    comp,
+) -> None:
+    """Transparent left-to-right *process* as a vertical pipeline (not a network graph)."""
+    st.divider()
+    st.subheader("How the Image Becomes Music")
+    st.caption(
+        "A **translation pipeline**: pixels and a frozen vision model produce **numbers**; those numbers "
+        "are **mapped** to musical parameters; a small **rule-based** program writes MIDI. "
+        "The neural net does **not** compose or improvise—it only supplies part of the visual signal."
+    )
+
+    # --- 1. Image input ---------------------------------------------------------
+    r1, r2 = st.columns([1.35, 1], gap="medium")
+    with r1:
+        _pipeline_card(
+            "Stage 1",
+            "Image input",
+            [
+                "Your photo is the single source for every downstream stage.",
+                "The same image feeds both classic pixel statistics and the ResNet pass.",
+            ],
+        )
+    with r2:
+        st.image(image, width=200, caption="Source image")
+
+    _pipeline_arrow()
+
+    # --- 2. Visual features -----------------------------------------------------
+    _pipeline_card(
+        "Stage 2",
+        "Visual feature extraction (classic, explainable)",
+        [
+            f"<b>Brightness</b> — {features.brightness * 100:.0f}% (mean luminance)",
+            f"<b>Dominant color</b> — <code>{features.dominant_color_hex}</code>",
+            f"<b>Contrast</b> — {features.contrast * 100:.0f}% relative spread",
+            f"<b>Edge / detail score</b> — {features.edge_detail_score * 100:.0f}% (sharpness proxy)",
+        ],
+    )
+    _pipeline_arrow()
+
+    # --- 3. Learned embedding ---------------------------------------------------
+    _pipeline_card(
+        "Stage 3",
+        "Learned visual embedding (frozen ResNet18)",
+        [
+            f"<b>Embedding size</b> — {emb_dim} floats (backbone vector, classifier removed)",
+            f"<b>Neural energy score</b> — {ml_summary['energy_score']:.3f} (summary of activation strength)",
+            f"<b>Variation score</b> — {ml_summary['variation_score']:.3f} (summary of spread across dimensions)",
+            "These are <b>shape statistics</b> on the vector—not a caption of the scene.",
+        ],
+    )
+    _pipeline_arrow()
+
+    # --- 4. Music mapping -------------------------------------------------------
+    _pipeline_card(
+        "Stage 4",
+        "Music mapping (blend of Stage 2 + Stage 3)",
+        [
+            f"<b>Key</b> — {comp.key} (hue from pixels, unchanged by the net)",
+            f"<b>Mode</b> — {comp.mode} (brightness / warmth heuristics)",
+            f"<b>Tempo</b> — {comp.tempo_bpm} BPM (classic tempo blended with energy score)",
+            f"<b>Rhythm complexity</b> — {comp.rhythm_complexity} (edges blended with variation score)",
+            f"<b>Note span</b> — MIDI {comp.midi_low}–{comp.midi_high} (contrast/detail blended with peak activation)",
+        ],
+    )
+    _pipeline_arrow()
+
+    # --- 5. Composition engine --------------------------------------------------
+    _pipeline_card(
+        "Stage 5",
+        "Composition engine (small program, not a generative model)",
+        [
+            "<b>Melody generation</b> — short sequence of random choices inside the mapped constraints",
+            f"<b>Scale selection</b> — diatonic pitches for {comp.key} {comp.mode} inside the MIDI span",
+            "<b>MIDI creation</b> — note-on / note-off events written with <code>mido</code>",
+        ],
+    )
+    _pipeline_arrow()
+
+    # --- 6. Audio output ----------------------------------------------------------
+    _pipeline_card(
+        "Stage 6",
+        "Audio output",
+        [
+            "<b>Playback</b> — WAV in the browser when fluidsynth + a SoundFont render the MIDI",
+            "<b>Download MIDI</b> — always available after “Generate Music”",
+            "<b>Download WAV</b> — only when offline rendering succeeds",
+        ],
+    )
+
+
 def main() -> None:
     st.set_page_config(page_title="Chromesthesia", layout="wide")
     st.title("Chromesthesia")
@@ -73,6 +192,8 @@ def main() -> None:
         if st.session_state.get("_upload_key") != upload_key:
             st.session_state.pop("midi_path", None)
             st.session_state.pop("wav_path", None)
+            st.session_state.pop("scene_rankings", None)
+            st.session_state.pop("_scene_cache_key", None)
             st.session_state["_upload_key"] = upload_key
 
         image = load_image_from_bytes(data)
@@ -100,6 +221,23 @@ def main() -> None:
             st.metric("Edge / detail score", f"{features.edge_detail_score * 100:.0f}%")
             st.markdown("**Mood interpretation**")
             st.write(mood)
+
+        st.divider()
+        st.subheader("Scene Interpretation")
+        if st.session_state.get("_scene_cache_key") != upload_key or "scene_rankings" not in st.session_state:
+            with st.spinner("Loading CLIP and scoring prompts…"):
+                scene_rankings = interpret_scene(image)
+            st.session_state["_scene_cache_key"] = upload_key
+            st.session_state["scene_rankings"] = scene_rankings
+        else:
+            scene_rankings = st.session_state["scene_rankings"]
+        st.caption(
+            "Local **CLIP** (Hugging Face `transformers`): your image is compared to the fixed phrases "
+            "below. Scores are **softmax over this list only**—they rank the prompts relative to each "
+            "other, not absolute truth. **Not used for MIDI yet.**"
+        )
+        for rank, (label, score) in enumerate(scene_rankings, start=1):
+            st.write(f"{rank}. **{score * 100:.1f}%** — {label}")
 
         st.divider()
         st.subheader("Neural Visual Interpretation")
@@ -141,6 +279,8 @@ def main() -> None:
         with c3:
             st.write("**Melody description**")
             st.write(comp.melody_description)
+
+        render_translation_pipeline(image, features, ml_summary, emb_dim, comp)
 
         if st.button("Generate Music", type="primary"):
             stem = st.session_state.get("upload_name", "chromesthesia")

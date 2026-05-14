@@ -1,4 +1,8 @@
-"""Map visual features to musical parameters (pitch, rhythm, timbre, etc.)."""
+"""Map visual features (and optional ML summaries) into a concrete composition plan.
+
+Turns ``ImageFeatures`` plus optional ResNet-derived scalars into key, mode, tempo, rhythm label,
+melody blurb, and allowed MIDI pitch range for the generator.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +20,8 @@ _ML_RANGE_WEIGHT = 0.5
 
 @dataclass(frozen=True)
 class CompositionPlan:
+    """All parameters the MIDI engine needs: tonality, tempo, rhythm density, text, note span."""
+
     key: str
     tempo_bpm: int
     mode: str
@@ -26,6 +32,7 @@ class CompositionPlan:
 
 
 def interpret_mood(features: ImageFeatures) -> str:
+    """Return a short human-readable mood line from brightness, contrast, and edge score (for UI only)."""
     b, c, e = features.brightness, features.contrast, features.edge_detail_score
     # Simple heuristic labels
     if b > 0.65 and c < 0.35:
@@ -42,6 +49,7 @@ def interpret_mood(features: ImageFeatures) -> str:
 
 
 def _hue_from_hex(hex_color: str) -> float:
+    """Convert #RRGGBB to a hue in [0, 1) for key selection (0 = red wedge in HSV-style wheel)."""
     h = hex_color.lstrip("#")
     if len(h) != 6:
         return 0.0
@@ -74,6 +82,7 @@ def _rhythm_tier_from_unit_interval(x: float) -> int:
 
 
 def _tier_to_label(tier: int) -> str:
+    """Map integer tier 0/1/2 to rhythm complexity labels used by the MIDI generator."""
     return ("Low", "Moderate", "High")[max(0, min(2, tier))]
 
 
@@ -81,7 +90,7 @@ def plan_composition(
     features: ImageFeatures,
     ml_summary: Mapping[str, float] | None = None,
 ) -> CompositionPlan:
-    """Blend classical image heuristics with optional ResNet embedding summaries.
+    """Build a ``CompositionPlan`` by blending pixel heuristics with optional embedding summaries.
 
     Image side (unchanged ideas): hue → key, brightness/warmth → mode, edges → rhythm tier,
     brightness + edges → tempo baseline, contrast → melody wording.

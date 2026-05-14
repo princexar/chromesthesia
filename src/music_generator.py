@@ -1,4 +1,8 @@
-"""Generate MIDI or musical structures from mapped image features."""
+"""Build short MIDI files from a ``CompositionPlan`` using simple random note choices.
+
+Does not run neural networks: it only reads the plan produced by ``music_mapping`` and writes
+note events with ``mido``.
+"""
 
 from __future__ import annotations
 
@@ -27,6 +31,7 @@ _ROOT_PC = {
 
 
 def _scale_midi_notes(key: str, mode: str, low: int, high: int) -> list[int]:
+    """List every MIDI note in [low, high] that belongs to the diatonic scale for key/mode."""
     root = _ROOT_PC[key]
     ivs = (
         [0, 2, 4, 5, 7, 9, 11]
@@ -38,7 +43,19 @@ def _scale_midi_notes(key: str, mode: str, low: int, high: int) -> list[int]:
 
 
 def generate_midi(plan: CompositionPlan, out_path: Path, seed: int | None = None) -> Path:
-    """Write a short melodic MIDI file based on the composition plan."""
+    """Write a short monophonic piano phrase to ``out_path`` following tempo, rhythm, and pitch span.
+
+    Picks notes at random from the legal scale pool, biased toward small steps from the previous
+    pitch. Rhythm density follows ``plan.rhythm_complexity``.
+
+    Args:
+        plan: Mapping output with key, mode, tempo, rhythm label, and MIDI low/high bounds.
+        out_path: Destination ``.mid`` file (parent directories are created if missing).
+        seed: Optional RNG seed for reproducible note choices.
+
+    Returns:
+        The same ``out_path`` after a successful save.
+    """
     rng = random.Random(seed)
     low, high = plan.midi_low, plan.midi_high
     if low >= high:
