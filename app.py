@@ -21,50 +21,35 @@ OUTPUT_AUDIO_DIR = PROJECT_ROOT / "outputs" / "audio"
 SOUNDFONTS_DIR = PROJECT_ROOT / "assets" / "soundfonts"
 
 HOW_IT_WORKS = """
-Chromesthesia builds one **composition plan** from **three parallel readings** of your image—classic
-pixels, a ResNet embedding summary, and a **CLIP scene cue** (mood, energy, scale, duration band,
-texture)—then maps them into tempo, span, **length in measures**, **section form**, and **harmony
-density**. A **rule-based** program writes multi-measure MIDI (melody plus optional bass line).
+Chromesthesia follows a **modular pipeline**: classic pixels, a ResNet embedding summary, and a
+**CLIP scene cue** feed the rule-based **composition intelligence layer**, which outputs a structured
+**CompositionPlan** (key, mode, tempo, duration, form, densities, ranges, harmony scalar, instrument
+feel, mood line, and short explanations). **music_generator** turns that plan into multi-measure MIDI
+(melody plus optional harmony); **WAV** still needs **fluidsynth** + a **`.sf2`** under `assets/soundfonts/`.
 
 #### 1. Classic image analysis (explainable pixels)
 
-These are hand-designed signals from the photo itself—easy to reason about in the **Image analysis**
-panel:
-
-- **Dominant color (hue)** → **musical key** (twelve chromatic keys around the color wheel).
+- **Dominant color (hue)** → **musical key**.
 - **Brightness** and **warm vs cool** hues → **major vs minor mode**.
-- **Brightness** and **edge / detail** → a **tempo** starting point (brighter, busier scenes lean faster).
-- **Edge / detail** → a **rhythm complexity** tier (Low / Moderate / High).
-- **Contrast** and **edges** → how **wide the MIDI pitch window** can be, and extra wording in the
-  **melody description** (e.g. wide leaps when contrast is high).
-
-The **mood** line is a separate human-readable gloss on those same pixel stats; it does not drive
-the MIDI math by itself.
+- **Brightness** and **edge / detail** → **tempo** starting point.
+- **Contrast** and **edges** → **melodic range** (MIDI span) and **note density** inputs.
 
 #### 2. Neural embedding (ResNet18 backbone)
 
-The image is also run through a pretrained **ResNet18** (classification weights, **final layer
-removed**). The **512** backbone values are summarized into a few scalars (see **Neural Visual
-Interpretation**). Those summaries are **not** scene labels like “beach” or “sad”; they describe the
-shape of the activation vector. They are **blended** into the same plan as the classic cues:
-
-- **Energy score** → mixed with the classic tempo idea so overall **tempo** reflects both.
-- **Variation score** → mixed with the edge-based **rhythm complexity** tier.
-- **Peak activation (`max_activation`)** → mixed with the classic span so **note range** (MIDI low–high)
-  reflects both fine structure in the embedding and contrast/detail in the image.
+The **512**-D backbone vector is summarized into scalars such as **energy**, **variation**, and
+**max activation**. Those blend into **tempo**, **note density**, and **melodic range** in the plan.
+They are **not** scene captions.
 
 #### 3. Scene composition cue (frozen CLIP)
 
-**CLIP** ranks atmosphere prompts, then scores separate prompt sets for **intimate vs expansive**,
-**short vs long feel**, and **sparse vs dense** texture. Those choices set a **target duration**
-(roughly 30–45s / 60–90s / 90–180s bands), nudge **tempo** and **rhythm**, and pick **AABA**, **ABAB**,
-or **through-composed** form plus **simple / moderate / rich** harmony in the MIDI engine.
+**CLIP** drives duration bands, scale, texture, energy, and atmosphere strings that steer the
+planner’s **structure**, **texture_density**, **duration_seconds**, and prose **mood** / **instrument_feel**
+hints.
 
 #### 4. What you hear
 
-**Generate Music** writes **many measures** of diatonic material: scene-driven **rest probability** and
-subdivisions control **note density**; a second track adds **roots / fifths / arpeggiated triads** when
-harmony is not *simple*. **WAV** playback still needs **fluidsynth** + a **`.sf2`** under `assets/soundfonts/`.
+**Generate Music** maps the plan to subdivisions and rests, then writes diatonic MIDI; harmony depth
+comes from the plan’s **harmonic_complexity** scalar (thresholded inside the generator).
 """
 
 
@@ -101,9 +86,9 @@ def render_translation_pipeline(
     st.divider()
     st.subheader("How the Image Becomes Music")
     st.caption(
-        "A **translation pipeline**: pixels, a ResNet summary, and a **CLIP scene cue** become **numbers**; "
-        "those numbers are **mapped** to musical parameters; a **rule-based** program writes multi-measure MIDI. "
-        "No model is trained here—frozen nets only suggest structure."
+        "A **translation pipeline**: pixels, a ResNet summary, and a **CLIP scene cue** feed the "
+        "**composition intelligence layer**, which emits a ``CompositionPlan``; ``music_generator`` "
+        "writes multi-measure MIDI from that plan. No model is trained here—frozen nets only suggest structure."
     )
 
     # --- 1. Image input ---------------------------------------------------------
@@ -160,31 +145,34 @@ def render_translation_pipeline(
     )
     _pipeline_arrow()
 
-    # --- 5. Music mapping -------------------------------------------------------
+    # --- 5. Composition plan (intelligence layer) -------------------------------
+    bars = max(12, min(96, int(round(comp.duration_seconds * comp.tempo_bpm / 240))))
     _pipeline_card(
         "Stage 5",
-        "Music mapping (pixels + ResNet + scene cue)",
+        "Composition plan (rule-based intelligence layer)",
         [
-            f"<b>Key</b> — {comp.key} (hue from pixels)",
-            f"<b>Mode</b> — {comp.mode} (brightness / warmth heuristics)",
-            f"<b>Tempo</b> — {comp.tempo_bpm} BPM (pixels + ResNet energy + scene energy)",
-            f"<b>Rhythm</b> — {comp.rhythm_complexity} (edges + variation + scene texture)",
-            f"<b>Note span</b> — MIDI {comp.midi_low}–{comp.midi_high} (contrast + ML peak + scene scale)",
-            f"<b>Measures / form</b> — {comp.measures} bars, **{comp.section_form}**",
-            f"<b>Harmony depth</b> — {comp.harmonic_complexity}",
+            f"<b>Key / mode</b> — {comp.key} {comp.mode}",
+            f"<b>Tempo</b> — {comp.tempo_bpm} BPM",
+            f"<b>Duration / form</b> — ~{comp.duration_seconds:.0f}s, **{comp.structure}** (~{bars} bars @ 4/4)",
+            f"<b>Texture / note density</b> — {comp.texture_density}, {comp.note_density:.2f}",
+            f"<b>Melodic range</b> — MIDI {comp.melodic_range[0]}–{comp.melodic_range[1]}",
+            f"<b>Harmonic complexity</b> — {comp.harmonic_complexity:.2f} (thresholded in generator)",
+            f"<b>Mood</b> — {comp.mood[:120]}{'…' if len(comp.mood) > 120 else ''}",
         ],
     )
     _pipeline_arrow()
 
-    # --- 6. Composition engine --------------------------------------------------
+    # --- 6. MIDI generator ------------------------------------------------------
     _pipeline_card(
         "Stage 6",
-        "Composition engine (rule-based, not a generative model)",
+        "MIDI generator (``music_generator``, not a neural composer)",
         [
-            f"<b>Length</b> — ~{comp.target_duration_sec:.0f}s ({comp.measures} × 4/4 measures)",
-            f"<b>Melody</b> — section-aware random walk ({comp.section_form}) with scene-driven rests",
-            f"<b>Scale</b> — diatonic pitches for {comp.key} {comp.mode} inside MIDI {comp.midi_low}–{comp.midi_high}",
-            f"<b>Harmony track</b> — {'none (simple)' if comp.harmonic_complexity == 'simple' else comp.harmonic_complexity + ' bass / arpeggio'}",
+            f"<b>Length</b> — ~{comp.duration_seconds:.0f}s (~{bars} × 4/4 measures at {comp.tempo_bpm} BPM)",
+            f"<b>Melody</b> — section-aware random walk ({comp.structure}) with rests from texture + note density",
+            f"<b>Scale</b> — diatonic {comp.key} {comp.mode} within MIDI {comp.melodic_range[0]}–{comp.melodic_range[1]}",
+            f"<b>Harmony track</b> — from harmonic complexity scalar + <code>{comp.instrument_feel[:80]}…</code>"
+            if len(comp.instrument_feel) > 80
+            else f"<b>Harmony track</b> — from harmonic complexity scalar + {comp.instrument_feel!r}",
             "<b>MIDI</b> — written with <code>mido</code> (melody + optional second track)",
         ],
     )
@@ -319,6 +307,7 @@ def main() -> None:
 
         comp = plan_composition(features, ml_summary, scene_cue)
         st.session_state["composition"] = comp
+        bars = max(12, min(96, int(round(comp.duration_seconds * comp.tempo_bpm / 240))))
 
         st.divider()
         st.subheader("Generated composition")
@@ -326,19 +315,23 @@ def main() -> None:
         with c1:
             st.write("**Key**", comp.key)
             st.write("**Tempo**", f"{comp.tempo_bpm} BPM")
-            st.caption(f"MIDI **{comp.midi_low}–{comp.midi_high}**")
+            st.caption(f"MIDI span **{comp.melodic_range[0]}–{comp.melodic_range[1]}**")
         with c2:
             st.write("**Mode**", comp.mode)
-            st.write("**Rhythm**", comp.rhythm_complexity)
+            st.write("**Note density**", f"{comp.note_density:.2f}")
             st.caption(f"Texture **{comp.texture_density}**")
         with c3:
-            st.write("**Length**", f"~{comp.target_duration_sec:.0f}s")
-            st.write("**Measures**", f"{comp.measures} bars")
-            st.caption(f"Form **{comp.section_form}**")
+            st.write("**Length**", f"~{comp.duration_seconds:.0f}s")
+            st.write("**Measures**", f"~{bars} bars (4/4)")
+            st.caption(f"Structure **{comp.structure}**")
         with c4:
-            st.write("**Harmony**", comp.harmonic_complexity)
-            st.write("**Melody / scene**")
-            st.caption(comp.melody_description[:220] + ("…" if len(comp.melody_description) > 220 else ""))
+            st.write("**Harmonic complexity**", f"{comp.harmonic_complexity:.2f}")
+            st.write("**Mood**")
+            st.caption(comp.mood[:220] + ("…" if len(comp.mood) > 220 else ""))
+        with st.expander("Instrument feel & planner explanation"):
+            st.write(comp.instrument_feel)
+            for line in comp.explanation:
+                st.markdown(f"- {line}")
 
         render_translation_pipeline(image, features, ml_summary, emb_dim, comp, scene_cue)
 
