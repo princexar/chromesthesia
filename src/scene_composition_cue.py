@@ -1,7 +1,8 @@
 """Turn CLIP prompt rankings into structured composition cues (duration, scale, texture, energy).
 
 This module does **not** load models; it calls ``semantic_interpreter.clip_rank_texts``. The cues
-are consumed by ``music_mapping.plan_composition`` and ``music_generator.generate_midi``.
+feed ``composition_intelligence_layer.build_composition_plan`` (and ``music_generator.generate_midi``
+via the resulting ``CompositionPlan``).
 """
 
 from __future__ import annotations
