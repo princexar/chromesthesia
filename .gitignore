@@ -20,3 +20,6 @@ outputs/audio/*.flac
 # Large binary assets (add soundfonts manually)
 assets/soundfonts/*.sf2
 assets/soundfonts/*.sf3
+
+# MAESTRO dataset (download separately; see src/maestro_dataset_tools.py)
+data/maestro/

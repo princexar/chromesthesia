@@ -78,6 +78,7 @@ chromesthesia/
 │   ├── music_mapping.py                     # facade + UI mood line
 │   ├── music_generator.py                 # CompositionPlan → MIDI
 │   ├── audio_renderer.py
+│   ├── maestro_dataset_tools.py           # MAESTRO MIDI feature extraction (not used by app)
 │   └── composition_model.py               # future PyTorch sketch (unused in app)
 ├── assets/soundfonts/     # add your .sf2 / .sf3 here for WAV
 ├── outputs/midi/          # generated .mid (patterns may be gitignored)
@@ -95,6 +96,7 @@ chromesthesia/
 | `torch`, `torchvision` | ResNet18 embedding |
 | `transformers` | CLIP (if missing, the app falls back to a neutral scene cue) |
 | `mido` | MIDI file I/O |
+| `pretty_midi`, `pandas` | Optional MAESTRO exploration (`src/maestro_dataset_tools.py`) |
 
 ---
 
@@ -111,5 +113,6 @@ chromesthesia/
 - Tweak **how images map to plans**: edit `src/composition_intelligence_layer.py` (`build_composition_plan` and helpers).
 - Tweak **how plans become notes**: edit `src/music_generator.py`.
 - Tweak **CLIP wording or axes**: edit `src/semantic_interpreter.py` (default labels) and `src/scene_composition_cue.py` (prompt sets and tables).
+- **MAESTRO (future training)**: place the unzipped dataset under `data/maestro/` (ignored by git). Use `src/maestro_dataset_tools.py` to scan MIDI files and build a pandas summary—no training or app wiring yet.
 
 If you add new Python files under `src/`, keep imports package-style (`from src.…`) when running from the repo root with Streamlit, matching `app.py`.
