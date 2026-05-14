@@ -113,6 +113,6 @@ chromesthesia/
 - Tweak **how images map to plans**: edit `src/composition_intelligence_layer.py` (`build_composition_plan` and helpers).
 - Tweak **how plans become notes**: edit `src/music_generator.py`.
 - Tweak **CLIP wording or axes**: edit `src/semantic_interpreter.py` (default labels) and `src/scene_composition_cue.py` (prompt sets and tables).
-- **MAESTRO (future training)**: place the unzipped dataset under `data/maestro/` (ignored by git). Use `src/maestro_dataset_tools.py` to scan MIDI files and build a pandas summary—no training or app wiring yet.
+- **MAESTRO (future training)**: keep the dataset under `data/` (e.g. `data/maestro-v3.0.0/` or `data/maestro/`; both are gitignored). Use `src/maestro_dataset_tools.py` to scan MIDI files and build a pandas summary—no training or app wiring yet.
 
 If you add new Python files under `src/`, keep imports package-style (`from src.…`) when running from the repo root with Streamlit, matching `app.py`.

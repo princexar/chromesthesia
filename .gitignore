@@ -21,5 +21,8 @@ outputs/audio/*.flac
 assets/soundfonts/*.sf2
 assets/soundfonts/*.sf3
 
-# MAESTRO dataset (download separately; see src/maestro_dataset_tools.py)
+# MAESTRO dataset (large MIDI/audio; see src/maestro_dataset_tools.py)
 data/maestro/
+data/maestro-*/
+# If you unzip the archive at the repo root (leading / = root only):
+/maestro-v*/

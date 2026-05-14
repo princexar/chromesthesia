@@ -28,30 +28,28 @@ import pretty_midi
 #    You typically get a folder like ``maestro-v3.0.0`` containing ``metadata.csv``, ``midi/``,
 #    ``audio/``, etc.
 #
-# 2. Recommended layout inside *this* project (ignored by git so large files never get committed):
+# 2. Recommended layout inside *this* project (ignored by git; see ``.gitignore``):
 #
 #        chromesthesia/
 #            data/
+#                maestro-v3.0.0/          # common: unzip the archive directly here
+#                    midi/
+#                    audio/
+#                    ...
+#        or
+#            data/
 #                maestro/
-#                    maestro-v3.0.0/      # or whatever version you downloaded
-#                        midi/              # many nested year subfolders with .midi files
+#                    maestro-v3.0.0/
+#                        midi/
 #                        ...
 #
-#    Point ``scan_maestro_midis_to_dataframe`` at ``data/maestro`` (recursive scan) or directly
-#    at ``.../maestro-v3.0.0/midi`` if you prefer a single tree of MIDI only.
+#    Point ``scan_maestro_midis_to_dataframe`` at ``data/`` (recursive) or at ``.../midi`` alone.
 #
-# 3. Add ``/data/`` (or your chosen parent) to ``.gitignore`` if it is not already ignored, so
-#    thousands of MIDI/audio files are never staged by accident.
+# 3. See the repo ``.gitignore`` for ``data/maestro/``, ``data/maestro-*/``, and optional root ``/maestro-v*/``.
 # ---------------------------------------------------------------------------
 
-MAESTRO_SUGGESTED_ROOT = Path("data") / "maestro"
-"""Relative path suggestion only—create this folder and unzip MAESTRO inside it.
-
-This constant is **documentation**, not an automatic download. The path is relative to the
-project root when you launch Python from there.
-"""
-
-
+# Example path if you unzip MAESTRO straight into ``data/`` (ignored: ``data/maestro-*/`` etc.).
+MAESTRO_SUGGESTED_ROOT = Path("data") / "maestro-v3.0.0"
 @dataclass(frozen=True)
 class MaestroMidiFeatures:
     """High-level numbers summarizing one MIDI file (good for dataset statistics or future labels).
